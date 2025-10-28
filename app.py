@@ -24,7 +24,7 @@ def chat_completions():
         model = data.get('model', 'meta/llama-3.1-405b-instruct')
         temperature = data.get('temperature', 0.7)
         max_tokens = data.get('max_tokens', 1024)
-        stream = data.get('stream', False)
+        stream = data.get('stream', False)  # Allow streaming again
         
         # Log request for debugging
         print(f"Received request - Model: {model}, Messages: {len(messages)}, Stream: {stream}")
@@ -45,23 +45,39 @@ def chat_completions():
         
         if stream:
             # Handle streaming response
+            print("Starting streaming request to NVIDIA...")
             nim_response = requests.post(
                 f"{NVIDIA_BASE_URL}/chat/completions",
                 json=nim_payload,
                 headers=headers,
                 stream=True,
-                timeout=60
+                timeout=120
             )
+            
+            print(f"NVIDIA Streaming Response Status: {nim_response.status_code}")
             
             def generate():
-                for line in nim_response.iter_lines():
-                    if line:
-                        yield line + b'\n'
+                try:
+                    for chunk in nim_response.iter_content(chunk_size=None):
+                        if chunk:
+                            # Forward the raw chunk directly
+                            yield chunk
+                except Exception as e:
+                    print(f"Streaming error: {str(e)}")
+                    error_response = f'data: {json.dumps({"error": str(e)})}\n\n'
+                    yield error_response.encode('utf-8')
             
-            return Response(
+            response = Response(
                 stream_with_context(generate()),
-                content_type='text/event-stream'
+                content_type='text/event-stream',
+                headers={
+                    'Cache-Control': 'no-cache',
+                    'X-Accel-Buffering': 'no',
+                    'Connection': 'keep-alive'
+                }
             )
+            response.timeout = None
+            return response
         else:
             # Handle non-streaming response
             nim_response = requests.post(
