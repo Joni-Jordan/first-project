@@ -11,8 +11,11 @@ CORS(app)
 NVIDIA_API_KEY = os.environ.get('NVIDIA_API_KEY', '')
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
-@app.route('/v1/chat/completions', methods=['POST'])
+@app.route('/v1/chat/completions', methods=['POST', 'OPTIONS'])
 def chat_completions():
+    if request.method == 'OPTIONS':
+        return '', 204
+    
     try:
         data = request.json
         
@@ -22,6 +25,9 @@ def chat_completions():
         temperature = data.get('temperature', 0.7)
         max_tokens = data.get('max_tokens', 1024)
         stream = data.get('stream', False)
+        
+        # Log request for debugging
+        print(f"Received request - Model: {model}, Messages: {len(messages)}, Stream: {stream}")
         
         # Prepare NVIDIA NIM request
         nim_payload = {
@@ -43,7 +49,8 @@ def chat_completions():
                 f"{NVIDIA_BASE_URL}/chat/completions",
                 json=nim_payload,
                 headers=headers,
-                stream=True
+                stream=True,
+                timeout=60
             )
             
             def generate():
@@ -60,16 +67,38 @@ def chat_completions():
             nim_response = requests.post(
                 f"{NVIDIA_BASE_URL}/chat/completions",
                 json=nim_payload,
-                headers=headers
+                headers=headers,
+                timeout=60
             )
             
-            return Response(
-                nim_response.content,
-                status=nim_response.status_code,
-                content_type='application/json'
-            )
+            print(f"NVIDIA Response Status: {nim_response.status_code}")
+            
+            if nim_response.status_code == 200:
+                return Response(
+                    nim_response.content,
+                    status=200,
+                    content_type='application/json'
+                )
+            else:
+                print(f"Error from NVIDIA: {nim_response.text}")
+                return {
+                    "error": {
+                        "message": f"NVIDIA API error: {nim_response.text}",
+                        "type": "nvidia_api_error",
+                        "status_code": nim_response.status_code
+                    }
+                }, nim_response.status_code
     
+    except requests.exceptions.Timeout:
+        print("Request timeout")
+        return {
+            "error": {
+                "message": "Request to NVIDIA API timed out",
+                "type": "timeout_error"
+            }
+        }, 504
     except Exception as e:
+        print(f"Exception occurred: {str(e)}")
         return {
             "error": {
                 "message": str(e),
