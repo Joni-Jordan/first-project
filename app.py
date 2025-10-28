@@ -1,9 +1,11 @@
 from flask import Flask, request, Response, stream_with_context
+from flask_cors import CORS
 import requests
 import json
 import os
 
 app = Flask(__name__)
+CORS(app)
 
 # Get NVIDIA API key from environment variable
 NVIDIA_API_KEY = os.environ.get('NVIDIA_API_KEY', '')
